@@ -17,7 +17,7 @@ class Playground extends React.Component {
       <div className="docMainWrapper wrapper">
         <Container className="mainContainer documentContainer postContainer">
           <div className="post">
-            This is where the plaground goes.
+            This is where the playground goes.
           </div>
         </Container>
       </div>
