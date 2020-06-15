@@ -186,6 +186,7 @@ const siteConfig = {
   editUrl: 'https://github.com/facebook/relay/edit/master/docs/',
   headerLinks: [
     {doc: 'introduction-to-relay', label: 'Docs'},
+    {page: 'playground', label:'Playground'},
     {page: 'help', label: 'Help'},
     {search: true},
     {
