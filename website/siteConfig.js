@@ -179,7 +179,7 @@ const siteConfig = {
   title: 'Relay',
   tagline: 'The production-ready GraphQL client for React.',
   url: 'https://relay.dev',
-  baseUrl: '/',
+  baseUrl: '/relay/',
   projectName: 'relay',
   cname: 'relay.dev',
   users,
