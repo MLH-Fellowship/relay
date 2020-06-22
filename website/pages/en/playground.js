@@ -17,7 +17,12 @@ class Playground extends React.Component {
       <div className="docMainWrapper wrapper">
         <Container className="mainContainer documentContainer postContainer">
           <div className="post">
-            This is where the playground goes.
+            <iframe
+              src="https://codesandbox.io/s/github/MLH-Fellowship/relay-website-example"
+              style={{width:"100%", height:500, border:0, borderRadius: 4, overflow:"hidden"}}
+              title="MLH-Fellowship/relay-website-example"
+              allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
+              sandbox="allow-autoplay allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"></iframe>
           </div>
         </Container>
       </div>
