@@ -9,7 +9,7 @@
     "graphql-relay": "^0.6.0",
     "react": "^16.13.1",
     "react-dom": "^16.13.1",
-    "react-relay": "^0.0.0-experimental-94e87455",
+    "react-relay": "0.0.0-experimental-94e87455",
     "react-scripts": "3.4.1",
     "relay-local-schema": "^0.8.0",
     "relay-runtime": "^9.1.0",
