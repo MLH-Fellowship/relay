@@ -4,7 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @generated SignedSource<<b1e530f8bfaa1d662adc0e3468c27975>>
+ * @generated SignedSource<<eb88a73a08abe9530c3c15bf719dc348>>
  * @flow
  * @lightSyntaxTransform
  * @nogrep
@@ -20,9 +20,7 @@ import type { FragmentReference } from "relay-runtime";
 declare export opaque type ActorChangeTestFeedUnitFragment$ref: FragmentReference;
 declare export opaque type ActorChangeTestFeedUnitFragment$fragmentType: ActorChangeTestFeedUnitFragment$ref;
 export type ActorChangeTestFeedUnitFragment = {|
-  +actor: ?{|
-    +name: ?string,
-  |},
+  +id: string,
   +message: ?{|
     +text: ?string,
   |},
@@ -45,19 +43,8 @@ var node/*: ReaderFragment*/ = {
     {
       "alias": null,
       "args": null,
-      "concreteType": null,
-      "kind": "LinkedField",
-      "name": "actor",
-      "plural": false,
-      "selections": [
-        {
-          "alias": null,
-          "args": null,
-          "kind": "ScalarField",
-          "name": "name",
-          "storageKey": null
-        }
-      ],
+      "kind": "ScalarField",
+      "name": "id",
       "storageKey": null
     },
     {
@@ -84,7 +71,7 @@ var node/*: ReaderFragment*/ = {
 };
 
 if (__DEV__) {
-  (node/*: any*/).hash = "c59828d97112ef7a54d99ee024673caa";
+  (node/*: any*/).hash = "52c3c2a080b7bc16a00e823abf0cdb25";
 }
 
 module.exports = node;

@@ -54,6 +54,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "skip",
@@ -75,6 +76,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
 ]
  type_map: {
@@ -102,6 +104,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -116,6 +119,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(0),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -130,6 +134,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(1),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -144,6 +149,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(2),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -158,6 +164,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(2),
         ),
+        description: None,
     },
     Field {
         name: "url",
@@ -170,6 +177,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(2),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -184,6 +192,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(3),
         ),
+        description: None,
     },
     Field {
         name: "url",
@@ -196,6 +205,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(3),
         ),
+        description: None,
     },
     Field {
         name: "thumbnail",
@@ -208,6 +218,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(3),
         ),
+        description: None,
     },
     Field {
         name: "__typename",
@@ -220,6 +231,7 @@ Text Schema:Schema {
         ),
         directives: [],
         parent_type: None,
+        description: None,
     },
     Field {
         name: "__token",
@@ -232,6 +244,7 @@ Text Schema:Schema {
         ),
         directives: [],
         parent_type: None,
+        description: None,
     },
     Field {
         name: "__id",
@@ -244,6 +257,7 @@ Text Schema:Schema {
         ),
         directives: [],
         parent_type: None,
+        description: None,
     },
 ]
  input_objects: []
@@ -363,6 +377,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "skip",
@@ -384,6 +399,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
 ]
 enums: []
@@ -401,6 +417,7 @@ fields: [
         parent_type: Some(
             Interface(0),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -415,6 +432,7 @@ fields: [
         parent_type: Some(
             Interface(1),
         ),
+        description: None,
     },
     Field {
         name: "url",
@@ -427,6 +445,7 @@ fields: [
         parent_type: Some(
             Interface(1),
         ),
+        description: None,
     },
     Field {
         name: "thumbnail",
@@ -439,6 +458,7 @@ fields: [
         parent_type: Some(
             Interface(1),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -453,6 +473,7 @@ fields: [
         parent_type: Some(
             Interface(3),
         ),
+        description: None,
     },
     Field {
         name: "node",
@@ -465,6 +486,7 @@ fields: [
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -479,6 +501,7 @@ fields: [
         parent_type: Some(
             Interface(2),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -493,6 +516,7 @@ fields: [
         parent_type: Some(
             Interface(2),
         ),
+        description: None,
     },
     Field {
         name: "url",
@@ -505,6 +529,7 @@ fields: [
         parent_type: Some(
             Interface(2),
         ),
+        description: None,
     },
 ]
 input_objects: []

@@ -788,6 +788,7 @@ impl InMemorySchema {
             type_: TypeReference::NonNull(Box::new(TypeReference::Named(string_type))),
             directives: Vec::new(),
             parent_type: None,
+            description: None,
         });
     }
 
@@ -802,6 +803,7 @@ impl InMemorySchema {
             type_: TypeReference::NonNull(Box::new(TypeReference::Named(id_type))),
             directives: Vec::new(),
             parent_type: None,
+            description: None,
         });
     }
 
@@ -816,6 +818,7 @@ impl InMemorySchema {
             type_: TypeReference::NonNull(Box::new(TypeReference::Named(id_type))),
             directives: Vec::new(),
             parent_type: None,
+            description: None,
         });
     }
 
@@ -879,6 +882,7 @@ impl InMemorySchema {
                 arguments,
                 repeatable,
                 locations,
+                description,
             }) => {
                 if self.directives.contains_key(&name.value) {
                     let str_name = name.value.lookup();
@@ -898,6 +902,7 @@ impl InMemorySchema {
                         locations: locations.clone(),
                         repeatable: *repeatable,
                         is_extension,
+                        description: description.as_ref().map(|node| node.value),
                     },
                 );
             }
@@ -1149,6 +1154,7 @@ impl InMemorySchema {
                     let arguments = self.build_arguments(&field_def.arguments)?;
                     let type_ = self.build_type_reference(&field_def.type_)?;
                     let directives = self.build_directive_values(&field_def.directives);
+                    let description = field_def.description.as_ref().map(|desc| desc.value);
                     Ok(self.build_field(Field {
                         name: field_def.name.value,
                         is_extension: false,
@@ -1156,6 +1162,7 @@ impl InMemorySchema {
                         type_,
                         directives,
                         parent_type,
+                        description,
                     }))
                 })
                 .collect()
@@ -1179,6 +1186,7 @@ impl InMemorySchema {
                 let arguments = self.build_arguments(&field_def.arguments)?;
                 let directives = self.build_directive_values(&field_def.directives);
                 let type_ = self.build_type_reference(&field_def.type_)?;
+                let description = field_def.description.as_ref().map(|desc| desc.value);
                 field_ids.push(self.build_field(Field {
                     name: field_def.name.value,
                     is_extension: true,
@@ -1186,6 +1194,7 @@ impl InMemorySchema {
                     type_,
                     directives,
                     parent_type,
+                    description,
                 }));
             }
             Ok(field_ids)

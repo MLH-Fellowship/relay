@@ -23,23 +23,17 @@ const RelayRecordSource = require('./RelayRecordSource');
 
 const defaultGetDataID = require('./defaultGetDataID');
 const defaultRequiredFieldLogger = require('./defaultRequiredFieldLogger');
-const generateID = require('../util/generateID');
 const invariant = require('invariant');
+const registerEnvironmentWithDevTools = require('../util/registerEnvironmentWithDevTools');
+const wrapNetworkWithLogObserver = require('../network/wrapNetworkWithLogObserver');
 
 import type {HandlerProvider} from '../handlers/RelayDefaultHandlerProvider';
 import type {
   GraphQLResponse,
   INetwork,
   PayloadData,
-  UploadableMap,
 } from '../network/RelayNetworkTypes';
-import type {RequestParameters} from '../util/RelayConcreteNode';
-import type {
-  CacheConfig,
-  Disposable,
-  RenderPolicy,
-  Variables,
-} from '../util/RelayRuntimeTypes';
+import type {Disposable, RenderPolicy} from '../util/RelayRuntimeTypes';
 import type {ActiveState, TaskScheduler} from './OperationExecutor';
 import type {GetDataID} from './RelayResponseNormalizer';
 import type {
@@ -143,7 +137,7 @@ class RelayModernEnvironment implements IEnvironment {
         : 'full';
     this._operationLoader = operationLoader;
     this._operationExecutions = new Map();
-    this._network = this.__wrapNetworkWithLogObserver(config.network);
+    this._network = wrapNetworkWithLogObserver(this, config.network);
     this._getDataID = config.getDataID ?? defaultGetDataID;
     this._publishQueue = new RelayPublishQueue(
       config.store,
@@ -156,31 +150,23 @@ class RelayModernEnvironment implements IEnvironment {
     this._isServer = config.isServer ?? false;
 
     (this: any).__setNet = newNet =>
-      (this._network = this.__wrapNetworkWithLogObserver(newNet));
+      (this._network = wrapNetworkWithLogObserver(this, newNet));
 
     if (__DEV__) {
       const {inspect} = require('./StoreInspector');
       (this: any).DEBUG_inspect = (dataID: ?string) => inspect(this, dataID);
     }
 
-    // Register this Relay Environment with Relay DevTools if it exists.
-    // Note: this must always be the last step in the constructor.
-    const _global =
-      typeof global !== 'undefined'
-        ? global
-        : typeof window !== 'undefined'
-        ? window
-        : undefined;
-    const devToolsHook = _global && _global.__RELAY_DEVTOOLS_HOOK__;
-    if (devToolsHook) {
-      devToolsHook.registerEnvironment(this);
-    }
     this._missingFieldHandlers = config.missingFieldHandlers;
     this._operationTracker =
       config.operationTracker ?? new RelayOperationTracker();
     this._reactFlightPayloadDeserializer = reactFlightPayloadDeserializer;
     this._reactFlightServerErrorHandler = reactFlightServerErrorHandler;
     this._shouldProcessClientComponents = config.shouldProcessClientComponents;
+
+    // Register this Relay Environment with Relay DevTools if it exists.
+    // Note: this must always be the last step in the constructor.
+    registerEnvironmentWithDevTools(this);
   }
 
   getStore(): Store {
@@ -441,6 +427,7 @@ class RelayModernEnvironment implements IEnvironment {
       const executor = OperationExecutor.execute({
         getDataID: this._getDataID,
         isClientPayload,
+        log: this.__log,
         operation,
         operationExecutions: this._operationExecutions,
         operationLoader: this._operationLoader,
@@ -461,73 +448,6 @@ class RelayModernEnvironment implements IEnvironment {
       });
       return () => executor.cancel();
     });
-  }
-
-  /**
-   * Wraps the network with logging to ensure that network requests are
-   * always logged. Relying on each network callsite to be wrapped is
-   * untenable and will eventually lead to holes in the logging.
-   */
-  __wrapNetworkWithLogObserver(network: INetwork): INetwork {
-    const that = this;
-    return {
-      execute(
-        params: RequestParameters,
-        variables: Variables,
-        cacheConfig: CacheConfig,
-        uploadables?: ?UploadableMap,
-      ): RelayObservable<GraphQLResponse> {
-        const transactionID = generateID();
-        const log = that.__log;
-        const logObserver = {
-          start: subscription => {
-            log({
-              name: 'network.start',
-              transactionID,
-              params,
-              variables,
-              cacheConfig,
-            });
-          },
-          next: response => {
-            log({
-              name: 'network.next',
-              transactionID,
-              response,
-            });
-          },
-          error: error => {
-            log({
-              name: 'network.error',
-              transactionID,
-              error,
-            });
-          },
-          complete: () => {
-            log({
-              name: 'network.complete',
-              transactionID,
-            });
-          },
-          unsubscribe: () => {
-            log({
-              name: 'network.unsubscribe',
-              transactionID,
-            });
-          },
-        };
-        const logRequestInfo = info => {
-          log({
-            name: 'network.info',
-            transactionID,
-            info,
-          });
-        };
-        return network
-          .execute(params, variables, cacheConfig, uploadables, logRequestInfo)
-          .do(logObserver);
-      },
-    };
   }
 }
 

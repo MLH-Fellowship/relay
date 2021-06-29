@@ -5,10 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use crate::constants::ARGUMENT_DEFINITION;
 use crate::errors::ValidationMessage;
 use crate::ir::*;
 use crate::signatures::{build_signatures, FragmentSignature, FragmentSignatures};
+use crate::{constants::ARGUMENT_DEFINITION, GraphQLSuggestions};
 use common::{Diagnostic, DiagnosticsResult, Location, NamedItem, Span, WithLocation};
 use core::cmp::Ordering;
 use errors::{par_try_map, try2, try3, try_map};
@@ -209,6 +209,7 @@ struct Builder<'schema, 'signatures> {
     defined_variables: VariableDefinitions,
     used_variables: UsedVariables,
     options: BuilderOptions,
+    suggestions: GraphQLSuggestions<'schema>,
 }
 
 impl<'schema, 'signatures> Builder<'schema, 'signatures> {
@@ -225,6 +226,7 @@ impl<'schema, 'signatures> Builder<'schema, 'signatures> {
             defined_variables: Default::default(),
             used_variables: UsedVariables::default(),
             options,
+            suggestions: GraphQLSuggestions::new(schema),
         }
     }
 
@@ -848,6 +850,9 @@ impl<'schema, 'signatures> Builder<'schema, 'signatures> {
                     ValidationMessage::UnknownField {
                         type_: self.schema.get_type_name(parent_type.inner()),
                         field: field.name.value,
+                        suggestions: self
+                            .suggestions
+                            .field_name_suggestion(Some(parent_type.inner()), field.name.value),
                     },
                     self.location.with_span(span),
                 )]);
@@ -915,7 +920,10 @@ impl<'schema, 'signatures> Builder<'schema, 'signatures> {
                 return Err(vec![Diagnostic::error(
                     ValidationMessage::UnknownField {
                         type_: self.schema.get_type_name(parent_type.inner()),
-                        field: field_name,
+                        field: field.name.value,
+                        suggestions: self
+                            .suggestions
+                            .field_name_suggestion(Some(parent_type.inner()), field.name.value),
                     },
                     self.location.with_span(span),
                 )]);
@@ -1187,9 +1195,14 @@ impl<'schema, 'signatures> Builder<'schema, 'signatures> {
             |_| true,
         )?;
         Ok(Directive {
-            name: directive
-                .name
-                .name_with_location(self.location.source_location()),
+            name: WithLocation::from_span(
+                self.location.source_location(),
+                // Include the @ in the span of the directive name for the IR
+                // so error highlighting of the directive include the @ for stylistic
+                // purposes.
+                Span::new(directive.at.span.start, directive.name.span.end),
+                directive.name.value,
+            ),
             arguments,
         })
     }
@@ -1413,6 +1426,10 @@ impl<'schema, 'signatures> Builder<'schema, 'signatures> {
                     ValidationMessage::UnknownField {
                         type_: type_definition.name,
                         field: x.name.value,
+                        suggestions: self.suggestions.field_name_suggestion(
+                            self.schema.get_type(type_definition.name),
+                            x.name.value,
+                        ),
                     },
                     self.location.with_span(x.name.span),
                 )]),
@@ -1542,6 +1559,10 @@ impl<'schema, 'signatures> Builder<'schema, 'signatures> {
                     ValidationMessage::UnknownField {
                         type_: type_definition.name,
                         field: x.name.value,
+                        suggestions: self.suggestions.field_name_suggestion(
+                            self.schema.get_type(type_definition.name),
+                            x.name.value,
+                        ),
                     },
                     self.location.with_span(x.name.span),
                 )]),

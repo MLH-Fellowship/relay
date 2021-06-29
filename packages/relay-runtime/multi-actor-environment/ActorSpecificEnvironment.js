@@ -15,7 +15,10 @@ const RelayOperationTracker = require('../store/RelayOperationTracker');
 const RelayPublishQueue = require('../store/RelayPublishQueue');
 
 const defaultGetDataID = require('../store/defaultGetDataID');
+const registerEnvironmentWithDevTools = require('../util/registerEnvironmentWithDevTools');
+const wrapNetworkWithLogObserver = require('../network/wrapNetworkWithLogObserver');
 
+import type {HandlerProvider} from '../handlers/RelayDefaultHandlerProvider';
 import type {GraphQLResponse, PayloadData} from '../network/RelayNetworkTypes';
 import type {INetwork} from '../network/RelayNetworkTypes';
 import type RelayObservable from '../network/RelayObservable';
@@ -43,7 +46,9 @@ import type {
 
 export type ActorSpecificEnvironmentConfig = $ReadOnly<{
   actorIdentifier: ActorIdentifier,
-  defaultRenderPolicy?: ?RenderPolicy,
+  configName: ?string,
+  defaultRenderPolicy: RenderPolicy,
+  handlerProvider: HandlerProvider,
   logFn: LogFunction,
   multiActorEnvironment: IMultiActorEnvironment,
   network: INetwork,
@@ -52,20 +57,20 @@ export type ActorSpecificEnvironmentConfig = $ReadOnly<{
 }>;
 
 class ActorSpecificEnvironment implements IActorEnvironment {
-  +options: mixed;
   __log: LogFunction;
-  requiredFieldLogger: RequiredFieldLogger;
-  +_store: Store;
+  +_defaultRenderPolicy: RenderPolicy;
   +_network: INetwork;
   +_operationTracker: OperationTracker;
   +_publishQueue: RelayPublishQueue;
-  +_defaultRenderPolicy: RenderPolicy;
-
-  // Actor specific properties
+  +_store: Store;
   +actorIdentifier: ActorIdentifier;
+  +configName: ?string;
   +multiActorEnvironment: IMultiActorEnvironment;
+  +options: mixed;
+  requiredFieldLogger: RequiredFieldLogger;
 
   constructor(config: ActorSpecificEnvironmentConfig) {
+    this.configName = config.configName;
     this.actorIdentifier = config.actorIdentifier;
     this.multiActorEnvironment = config.multiActorEnvironment;
 
@@ -73,13 +78,31 @@ class ActorSpecificEnvironment implements IActorEnvironment {
     this.requiredFieldLogger = config.requiredFieldLogger;
     this._operationTracker = new RelayOperationTracker();
     this._store = config.store;
-    this._network = config.network;
+    this._network = wrapNetworkWithLogObserver(this, config.network);
     this._publishQueue = new RelayPublishQueue(
       config.store,
-      () => {},
+      config.handlerProvider,
       defaultGetDataID,
     );
-    this._defaultRenderPolicy = config.defaultRenderPolicy ?? 'partial';
+    this._defaultRenderPolicy = config.defaultRenderPolicy;
+    // TODO:T92305692 Remove `options` in favor of directly using `actorIdentifier` on the environment
+    this.options = {
+      actorID: this.actorIdentifier,
+    };
+
+    // We need to add this here to pass `isRelayModernEnvironment` check
+    // $FlowFixMe[prop-missing]
+    this['@@RelayModernEnvironment'] = true;
+
+    if (__DEV__) {
+      const {inspect} = require('../store/StoreInspector');
+      (this: $FlowFixMe).DEBUG_inspect = (dataID: ?string) =>
+        inspect(this, dataID);
+    }
+
+    // Register this Relay Environment with Relay DevTools if it exists.
+    // Note: this must always be the last step in the constructor.
+    registerEnvironmentWithDevTools(this);
   }
 
   getPublishQueue(): RelayPublishQueue {
@@ -96,6 +119,21 @@ class ActorSpecificEnvironment implements IActorEnvironment {
 
   applyUpdate(optimisticUpdate: OptimisticUpdateFunction): Disposable {
     return this.multiActorEnvironment.applyUpdate(this, optimisticUpdate);
+  }
+
+  revertUpdate(optimisticUpdate: OptimisticUpdateFunction): void {
+    return this.multiActorEnvironment.revertUpdate(this, optimisticUpdate);
+  }
+
+  replaceUpdate(
+    optimisticUpdate: OptimisticUpdateFunction,
+    replacementUpdate: OptimisticUpdateFunction,
+  ): void {
+    return this.multiActorEnvironment.replaceUpdate(
+      this,
+      optimisticUpdate,
+      replacementUpdate,
+    );
   }
 
   check(operation: OperationDescriptor): OperationAvailability {

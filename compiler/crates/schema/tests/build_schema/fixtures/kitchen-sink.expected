@@ -85,6 +85,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "skip",
@@ -106,6 +107,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "source",
@@ -139,6 +141,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
 ]
  type_map: {
@@ -218,6 +221,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "nodes",
@@ -250,6 +254,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -264,6 +269,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(0),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -278,6 +284,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -290,6 +297,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -302,6 +310,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "type",
@@ -314,6 +323,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "clientName",
@@ -326,6 +336,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(3),
         ),
+        description: None,
     },
     Field {
         name: "nickname",
@@ -338,6 +349,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "client",
@@ -350,6 +362,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "__typename",
@@ -362,6 +375,7 @@ Text Schema:Schema {
         ),
         directives: [],
         parent_type: None,
+        description: None,
     },
     Field {
         name: "__token",
@@ -374,6 +388,7 @@ Text Schema:Schema {
         ),
         directives: [],
         parent_type: None,
+        description: None,
     },
     Field {
         name: "__id",
@@ -386,6 +401,7 @@ Text Schema:Schema {
         ),
         directives: [],
         parent_type: None,
+        description: None,
     },
 ]
  input_objects: [
@@ -640,6 +656,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "skip",
@@ -661,6 +678,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "source",
@@ -694,6 +712,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
 ]
 enums: [
@@ -747,6 +766,7 @@ fields: [
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -761,6 +781,7 @@ fields: [
         parent_type: Some(
             Interface(0),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -773,6 +794,7 @@ fields: [
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "type",
@@ -785,6 +807,7 @@ fields: [
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "node",
@@ -807,6 +830,7 @@ fields: [
         parent_type: Some(
             Object(3),
         ),
+        description: None,
     },
     Field {
         name: "nodes",
@@ -839,6 +863,7 @@ fields: [
         parent_type: Some(
             Object(3),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -853,6 +878,7 @@ fields: [
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -865,6 +891,7 @@ fields: [
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "nickname",
@@ -877,6 +904,7 @@ fields: [
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "client",
@@ -889,6 +917,7 @@ fields: [
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
 ]
 input_objects: [

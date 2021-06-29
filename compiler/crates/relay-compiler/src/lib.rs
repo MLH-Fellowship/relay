@@ -18,19 +18,20 @@ pub mod errors;
 mod file_source;
 mod graphql_asts;
 mod red_to_green;
+mod remote_persister;
 mod rollout;
 pub mod saved_state;
 pub mod status_reporter;
 
 pub use build_project::{
-    add_to_mercurial, apply_transforms,
+    add_to_mercurial,
     artifact_writer::{
         ArtifactDifferenceWriter, ArtifactFileWriter, ArtifactWriter, NoopArtifactWriter,
     },
     build_programs, build_raw_program, build_schema, create_path_for_artifact, generate_artifacts,
     generate_extra_artifacts::GenerateExtraArtifactsFn,
     is_operation_preloadable, transform_program, validate, validate_program, Artifact,
-    ArtifactContent, BuildProjectFailure, Programs, SourceHashes,
+    ArtifactContent, BuildProjectFailure, SourceHashes,
 };
 pub use config::{OperationPersister, PersistConfig};
 pub use file_source::{
@@ -39,3 +40,4 @@ pub use file_source::{
     SourceControlUpdateStatus, SourceReader,
 };
 pub use graphql_asts::GraphQLAsts;
+pub use remote_persister::RemotePersister;

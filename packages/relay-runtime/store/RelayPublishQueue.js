@@ -55,7 +55,7 @@ type PendingUpdater = {|
 |};
 
 const applyWithGuard =
-  global.ErrorUtils?.applyWithGuard ??
+  global?.ErrorUtils?.applyWithGuard ??
   ((callback, context, args, onError, name) => callback.apply(context, args));
 
 /**
@@ -185,7 +185,20 @@ class RelayPublishQueue implements PublishQueue {
   run(
     sourceOperation?: OperationDescriptor,
   ): $ReadOnlyArray<RequestDescriptor> {
+    const runWillClearGcHold =
+      this._appliedOptimisticUpdates === 0 && !!this._gcHold;
+    const runIsANoop =
+      // this._pendingBackupRebase is true if an applied optimistic
+      // update has potentially been reverted or if this._pendingData is not empty.
+      !this._pendingBackupRebase &&
+      this._pendingOptimisticUpdates.size === 0 &&
+      !runWillClearGcHold;
+
     if (__DEV__) {
+      warning(
+        !runIsANoop,
+        'RelayPublishQueue.run was called, but the call would have been a noop.',
+      );
       warning(
         this._isRunning !== true,
         'A store update was detected within another store update. Please ' +
@@ -194,6 +207,14 @@ class RelayPublishQueue implements PublishQueue {
       );
       this._isRunning = true;
     }
+
+    if (runIsANoop) {
+      if (__DEV__) {
+        this._isRunning = false;
+      }
+      return [];
+    }
+
     if (this._pendingBackupRebase) {
       if (this._hasStoreSnapshot) {
         this._store.restore();
@@ -347,17 +368,19 @@ class RelayPublishQueue implements PublishQueue {
       } else {
         const {operation, payload, updater} = optimisticUpdate;
         const {source, fieldPayloads} = payload;
-        const recordSourceSelectorProxy = new RelayRecordSourceSelectorProxy(
-          mutator,
-          recordSourceProxy,
-          operation.fragment,
-        );
-        let selectorData;
         if (source) {
           recordSourceProxy.publishSource(source, fieldPayloads);
-          selectorData = lookupSelector(source, operation.fragment);
         }
         if (updater) {
+          let selectorData;
+          if (source) {
+            selectorData = lookupSelector(source, operation.fragment);
+          }
+          const recordSourceSelectorProxy = new RelayRecordSourceSelectorProxy(
+            mutator,
+            recordSourceProxy,
+            operation.fragment,
+          );
           applyWithGuard(
             updater,
             null,

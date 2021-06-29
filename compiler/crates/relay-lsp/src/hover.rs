@@ -97,8 +97,13 @@ fn get_hover_response_contents(
                 );
                 Some(hover_content_wrapper(content))
             } else {
-                let directive_text = print_directive(schema, &schema_directive);
-                Some(hover_content_wrapper(directive_text))
+                let directive_definition = print_directive(schema, &schema_directive);
+                let markdown_definition = graphql_marked_string(directive_definition);
+                let mut hover_contents: Vec<MarkedString> = vec![markdown_definition];
+                if let Some(description) = schema_directive.description {
+                    hover_contents.push(MarkedString::String(description.to_string()));
+                }
+                Some(HoverContents::Array(hover_contents))
             }
         }
         NodeKind::FieldName => {
@@ -112,7 +117,9 @@ fn get_hover_response_contents(
             let mut hover_contents: Vec<MarkedString> =
                 vec![MarkedString::String(format!("Field: **{}**", field.name))];
 
-            if let Some(field_description) =
+            if let Some(schema_description) = field.description {
+                hover_contents.push(MarkedString::String(schema_description.to_string()));
+            } else if let Some(field_description) =
                 schema_documentation.get_field_description(&parent_type_name, field.name.lookup())
             {
                 hover_contents.push(MarkedString::String(field_description.to_string()));
@@ -288,7 +295,7 @@ pub(crate) fn on_hover<TPerfLogger: PerfLogger + 'static>(
     state: &mut LSPState<TPerfLogger>,
     params: <HoverRequest as Request>::Params,
 ) -> LSPRuntimeResult<<HoverRequest as Request>::Result> {
-    let node_resolution_info = state.resolve_node(params)?;
+    let node_resolution_info = state.resolve_node(params.text_document_position_params)?;
 
     log::debug!("Hovering over {:?}", node_resolution_info);
     if let Some(schema) = state.get_schemas().get(&node_resolution_info.project_name) {

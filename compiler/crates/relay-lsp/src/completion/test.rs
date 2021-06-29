@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashMap, collections::HashSet, sync::Arc};
 
 use crate::server::SourcePrograms;
 
@@ -16,7 +16,7 @@ use fnv::FnvBuildHasher;
 use graphql_ir::{build, Program};
 use graphql_syntax::{parse_executable, parse_executable_with_error_recovery};
 use interner::Intern;
-use lsp_types::CompletionItem;
+use lsp_types::{CompletionItem, Documentation, MarkupContent, MarkupKind};
 use relay_test_schema::get_test_schema;
 
 fn parse_and_resolve_completion_items(
@@ -56,15 +56,26 @@ fn build_source_programs(source: &str) -> SourcePrograms {
 }
 
 fn assert_labels(items: Vec<CompletionItem>, labels: Vec<&str>) {
-    assert_eq!(items.len(), labels.len());
-    let mut current_labels = items
+    let mut completion_labels = items
         .into_iter()
         .map(|item| item.label)
         .collect::<HashSet<_>>();
+
+    assert_eq!(
+        completion_labels.len(),
+        labels.len(),
+        "Provided labels {:?} do not match completion items {:?}",
+        &completion_labels,
+        &labels
+    );
     for label in labels {
-        assert!(current_labels.remove(label));
+        assert!(
+            completion_labels.remove(label),
+            "Expected to have {} in the set",
+            label
+        );
     }
-    assert!(current_labels.is_empty());
+    assert!(completion_labels.is_empty());
 }
 
 #[test]
@@ -186,6 +197,43 @@ fn directive() {
             "include",
             "connection",
             "skip",
+            "fb_actor_change",
+        ],
+    );
+}
+
+#[test]
+fn directive_on_scalar_field() {
+    let items = parse_and_resolve_completion_items(
+        r#"
+        fragment Test on User {
+            profile_picture {
+                uri @|
+            }
+        }
+        "#,
+        None,
+    );
+    assert_labels(
+        items.unwrap(),
+        vec![
+            "prependEdge",
+            "deleteRecord",
+            "appendNode",
+            "deleteEdge",
+            "__clientField",
+            "appendEdge",
+            "required",
+            "stream_connection",
+            "match",
+            "customDirective",
+            "prependNode",
+            "fixme_fat_interface",
+            "stream",
+            "include",
+            "connection",
+            "skip",
+            "fb_actor_change",
         ],
     );
 }
@@ -378,6 +426,55 @@ fn empty_directive() {
             "include",
             "connection",
             "skip",
+            "fb_actor_change",
         ],
     );
+}
+
+fn make_markdown_documentation(value: &str) -> Documentation {
+    Documentation::MarkupContent(MarkupContent {
+        kind: MarkupKind::Markdown,
+        value: value.to_string(),
+    })
+}
+
+#[test]
+fn field_documentation() {
+    let items = parse_and_resolve_completion_items(
+        r#"
+            fragment Test on User {
+                profile_picture {
+                    uri|
+                }
+            }
+        "#,
+        None,
+    )
+    .unwrap();
+
+    let docs = items
+        .into_iter()
+        .map(|item| (item.label, item.documentation))
+        .collect::<HashMap<String, Option<Documentation>>>();
+
+    let mut expected: HashMap<String, Option<Documentation>> = HashMap::default();
+
+    expected.insert(
+        "uri".to_string(),
+        Some(make_markdown_documentation(
+            "URI where the image can be found",
+        )),
+    );
+
+    expected.insert(
+        "width".to_string(),
+        Some(make_markdown_documentation("Width in pixels")),
+    );
+    expected.insert(
+        "height".to_string(),
+        Some(make_markdown_documentation("Height in pixels")),
+    );
+    expected.insert("test_enums".to_string(), None);
+
+    assert_eq!(docs, expected);
 }

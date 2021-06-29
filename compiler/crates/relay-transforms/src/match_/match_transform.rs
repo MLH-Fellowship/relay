@@ -5,11 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use crate::defer_stream::DEFER_STREAM_CONSTANTS;
-use crate::feature_flags::FeatureFlags;
-use crate::inline_data_fragment::INLINE_DATA_CONSTANTS;
 use crate::match_::MATCH_CONSTANTS;
 use crate::util::get_normalization_operation_name;
+use crate::{defer_stream::DEFER_STREAM_CONSTANTS, FeatureFlag};
+use crate::{feature_flags::FeatureFlags, no_inline::attach_no_inline_directives_to_fragments};
+use crate::{
+    inline_data_fragment::INLINE_DATA_CONSTANTS, no_inline::validate_required_no_inline_directive,
+};
 use common::{Diagnostic, DiagnosticsResult, Location, NamedItem, WithLocation};
 use fnv::{FnvBuildHasher, FnvHashMap};
 use graphql_ir::{
@@ -63,7 +65,7 @@ struct Matches {
 }
 type MatchesForPath = FnvHashMap<Vec<Path>, Matches>;
 
-pub struct MatchTransform<'program> {
+pub struct MatchTransform<'program, 'flag> {
     program: &'program Program,
     parent_type: Type,
     document_name: StringKey,
@@ -72,10 +74,13 @@ pub struct MatchTransform<'program> {
     path: Vec<Path>,
     matches_for_path: MatchesForPath,
     enable_3d_branch_arg_generation: bool,
+    no_inline_flag: &'flag FeatureFlag,
+    // Stores the fragments that should use @no_inline and their parent document name
+    no_inline_fragments: FnvHashMap<StringKey, Vec<StringKey>>,
 }
 
-impl<'program> MatchTransform<'program> {
-    fn new(program: &'program Program, feature_flags: &FeatureFlags) -> Self {
+impl<'program, 'flag> MatchTransform<'program, 'flag> {
+    fn new(program: &'program Program, feature_flags: &'flag FeatureFlags) -> Self {
         Self {
             program,
             // Placeholders to make the types non-optional,
@@ -86,6 +91,8 @@ impl<'program> MatchTransform<'program> {
             path: Default::default(),
             matches_for_path: Default::default(),
             enable_3d_branch_arg_generation: feature_flags.enable_3d_branch_arg_generation,
+            no_inline_flag: &feature_flags.no_inline,
+            no_inline_fragments: Default::default(),
         }
     }
 
@@ -249,8 +256,9 @@ impl<'program> MatchTransform<'program> {
 
         // Only process the fragment spread with @module
         if let Some(module_directive) = module_directive {
-            // @arguments on the fragment spread is not allowed
-            if !spread.arguments.is_empty() {
+            let should_use_no_inline = self.no_inline_flag.is_enabled_for(spread.fragment.item);
+            // @arguments on the fragment spread is not allowed without @no_inline
+            if !should_use_no_inline && !spread.arguments.is_empty() {
                 return Err(Diagnostic::error(
                     ValidationMessage::InvalidModuleWithArguments,
                     spread.arguments[0].name.location,
@@ -476,6 +484,12 @@ impl<'program> MatchTransform<'program> {
                 ..spread.clone()
             }));
 
+            if should_use_no_inline {
+                self.no_inline_fragments
+                    .entry(fragment.name.item)
+                    .or_insert_with(|| vec![])
+                    .push(self.document_name);
+            }
             Ok(Transformed::Replace(Selection::InlineFragment(Arc::new(
                 InlineFragment {
                     type_condition: Some(fragment.type_condition),
@@ -487,8 +501,9 @@ impl<'program> MatchTransform<'program> {
                             module_id,
                             module_directive_name_argument,
                             self.document_name,
-                            spread.fragment.item,
+                            spread,
                             module_directive.name.location,
+                            should_use_no_inline,
                         )],
                         selections: vec![next_spread, operation_field, component_field],
                     }))],
@@ -682,10 +697,30 @@ impl<'program> MatchTransform<'program> {
     }
 }
 
-impl Transformer for MatchTransform<'_> {
+impl Transformer for MatchTransform<'_, '_> {
     const NAME: &'static str = "MatchTransform";
     const VISIT_ARGUMENTS: bool = false;
     const VISIT_DIRECTIVES: bool = false;
+
+    fn transform_program(&mut self, program: &Program) -> TransformedValue<Program> {
+        let next_program = self.default_transform_program(program);
+        if self.no_inline_fragments.is_empty() {
+            next_program
+        } else {
+            if let Err(errors) =
+                validate_required_no_inline_directive(&self.no_inline_fragments, program)
+            {
+                self.errors.extend(errors);
+                return next_program;
+            }
+            let mut next_program = next_program.replace_or_else(|| program.clone());
+            attach_no_inline_directives_to_fragments(
+                &mut self.no_inline_fragments,
+                &mut next_program,
+            );
+            TransformedValue::Replace(next_program)
+        }
+    }
 
     fn transform_fragment(
         &mut self,
@@ -818,27 +853,48 @@ fn get_module_directive_name_argument(
     })
 }
 
-fn build_module_metadata_as_directive(
-    key: StringKey,
-    id: StringKey,
-    module: StringKey,
-    source_document: StringKey,
-    name: StringKey,
+pub(crate) fn build_module_metadata_as_directive(
+    match_directive_key_argument: StringKey,
+    module_id: StringKey,
+    module_directive_name_argument: StringKey,
+    source_document_name: StringKey,
+    fragment_spread: &FragmentSpread,
     location: Location,
+    use_no_inline: bool,
 ) -> Directive {
+    let mut arguments = vec![
+        build_string_literal_argument(
+            MATCH_CONSTANTS.key_arg,
+            match_directive_key_argument,
+            location,
+        ),
+        build_string_literal_argument(MATCH_CONSTANTS.js_field_id_arg, module_id, location),
+        build_string_literal_argument(
+            MATCH_CONSTANTS.js_field_module_arg,
+            module_directive_name_argument,
+            location,
+        ),
+        build_string_literal_argument(
+            MATCH_CONSTANTS.source_document_arg,
+            source_document_name,
+            location,
+        ),
+        build_string_literal_argument(
+            MATCH_CONSTANTS.name_arg,
+            fragment_spread.fragment.item,
+            location,
+        ),
+    ];
+    if use_no_inline {
+        arguments.push(Argument {
+            name: WithLocation::new(location, MATCH_CONSTANTS.no_inline_arg),
+            value: WithLocation::new(location, Value::Constant(ConstantValue::Null())),
+        })
+    }
+
     Directive {
         name: WithLocation::new(location, MATCH_CONSTANTS.custom_module_directive_name),
-        arguments: vec![
-            build_string_literal_argument(MATCH_CONSTANTS.key_arg, key, location),
-            build_string_literal_argument(MATCH_CONSTANTS.js_field_id_arg, id, location),
-            build_string_literal_argument(MATCH_CONSTANTS.js_field_module_arg, module, location),
-            build_string_literal_argument(
-                MATCH_CONSTANTS.source_document_arg,
-                source_document,
-                location,
-            ),
-            build_string_literal_argument(MATCH_CONSTANTS.name_arg, name, location),
-        ],
+        arguments,
     }
 }
 

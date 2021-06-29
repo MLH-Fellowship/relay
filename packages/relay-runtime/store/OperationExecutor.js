@@ -20,12 +20,15 @@ const RelayObservable = require('../network/RelayObservable');
 const RelayRecordSource = require('./RelayRecordSource');
 const RelayResponseNormalizer = require('./RelayResponseNormalizer');
 
+const generateID = require('../util/generateID');
 const getOperation = require('../util/getOperation');
 const invariant = require('invariant');
 const stableCopy = require('../util/stableCopy');
 const warning = require('warning');
+const withDuration = require('../util/withDuration');
 
 const {generateClientID, generateUniqueClientID} = require('./ClientID');
+const {getLocalVariables} = require('./RelayConcreteVariables');
 const {
   createNormalizationSelector,
   createReaderSelector,
@@ -36,6 +39,7 @@ import type {
   GraphQLResponse,
   GraphQLSingularResponse,
   GraphQLResponseWithData,
+  ReactFlightServerTree,
 } from '../network/RelayNetworkTypes';
 import type {Sink, Subscription} from '../network/RelayObservable';
 import type {
@@ -43,6 +47,7 @@ import type {
   RequestDescriptor,
   HandleFieldPayload,
   IncrementalDataPlaceholder,
+  LogFunction,
   ModuleImportPayload,
   NormalizationSelector,
   OperationDescriptor,
@@ -53,6 +58,7 @@ import type {
   PublishQueue,
   ReactFlightPayloadDeserializer,
   ReactFlightServerErrorHandler,
+  ReactFlightClientResponse,
   Record,
   RelayResponsePayload,
   SelectorStoreUpdater,
@@ -73,6 +79,7 @@ import type {NormalizationOptions} from './RelayResponseNormalizer';
 export type ExecuteConfig = {|
   +getDataID: GetDataID,
   +treatMissingFieldsAsNull: boolean,
+  +log: LogFunction,
   +operation: OperationDescriptor,
   +operationExecutions: Map<string, ActiveState>,
   +operationLoader: ?OperationLoader,
@@ -129,6 +136,8 @@ class Executor {
   _treatMissingFieldsAsNull: boolean;
   _incrementalPayloadsPending: boolean;
   _incrementalResults: Map<Label, Map<PathKey, IncrementalResults>>;
+  _log: LogFunction;
+  _executeId: number;
   _nextSubscriptionId: number;
   _operation: OperationDescriptor;
   _operationExecutions: Map<string, ActiveState>;
@@ -152,6 +161,8 @@ class Executor {
   _subscriptions: Map<number, Subscription>;
   _updater: ?SelectorStoreUpdater;
   _retainDisposable: ?Disposable;
+  _asyncStoreUpdateDisposable: ?Disposable;
+  _completeFns: Array<() => void>;
   +_isClientPayload: boolean;
   +_isSubscriptionOperation: boolean;
 
@@ -170,6 +181,7 @@ class Executor {
     treatMissingFieldsAsNull,
     getDataID,
     isClientPayload,
+    log,
     reactFlightPayloadDeserializer,
     reactFlightServerErrorHandler,
     shouldProcessClientComponents,
@@ -178,6 +190,8 @@ class Executor {
     this._treatMissingFieldsAsNull = treatMissingFieldsAsNull;
     this._incrementalPayloadsPending = false;
     this._incrementalResults = new Map();
+    this._log = log;
+    this._executeId = generateID();
     this._nextSubscriptionId = 0;
     this._operation = operation;
     this._operationExecutions = operationExecutions;
@@ -200,6 +214,7 @@ class Executor {
     this._isSubscriptionOperation =
       this._operation.request.node.params.operationKind === 'subscription';
     this._shouldProcessClientComponents = shouldProcessClientComponents;
+    this._completeFns = [];
 
     const id = this._nextSubscriptionId++;
     source.subscribe({
@@ -212,7 +227,16 @@ class Executor {
           sink.error(error);
         }
       },
-      start: subscription => this._start(id, subscription),
+      start: subscription => {
+        this._start(id, subscription);
+        this._log({
+          name: 'execute.start',
+          executeId: this._executeId,
+          params: this._operation.request.node.params,
+          variables: this._operation.request.variables,
+          cacheConfig: this._operation.request.cacheConfig ?? {},
+        });
+      },
     });
 
     if (optimisticConfig != null) {
@@ -248,12 +272,37 @@ class Executor {
       this._publishQueue.run();
     }
     this._incrementalResults.clear();
+    if (this._asyncStoreUpdateDisposable != null) {
+      this._asyncStoreUpdateDisposable.dispose();
+      this._asyncStoreUpdateDisposable = null;
+    }
+    this._completeFns = [];
     this._completeOperationTracker();
     if (this._retainDisposable) {
       this._retainDisposable.dispose();
       this._retainDisposable = null;
     }
   }
+
+  _deserializeReactFlightPayloadWithLogging = (
+    tree: ReactFlightServerTree,
+  ): ReactFlightClientResponse => {
+    const reactFlightPayloadDeserializer = this._reactFlightPayloadDeserializer;
+    invariant(
+      typeof reactFlightPayloadDeserializer === 'function',
+      'OperationExecutor: Expected reactFlightPayloadDeserializer to be available when calling _deserializeReactFlightPayloadWithLogging.',
+    );
+    const [duration, result] = withDuration(() => {
+      return reactFlightPayloadDeserializer(tree);
+    });
+    this._log({
+      name: 'execute.flight.payload_deserialize',
+      executeId: this._executeId,
+      operationName: this._operation.request.node.params.name,
+      duration,
+    });
+    return result;
+  };
 
   _updateActiveState(): void {
     let activeState;
@@ -314,12 +363,21 @@ class Executor {
     if (this._subscriptions.size === 0) {
       this.cancel();
       this._sink.complete();
+      this._log({
+        name: 'execute.complete',
+        executeId: this._executeId,
+      });
     }
   }
 
   _error(error: Error): void {
     this.cancel();
     this._sink.error(error);
+    this._log({
+      name: 'execute.error',
+      executeId: this._executeId,
+      error,
+    });
   }
 
   _start(id: number, subscription: Subscription): void {
@@ -330,8 +388,16 @@ class Executor {
   // Handle a raw GraphQL response.
   _next(_id: number, response: GraphQLResponse): void {
     this._schedule(() => {
-      this._handleNext(response);
-      this._maybeCompleteSubscriptionOperationTracking();
+      const [duration] = withDuration(() => {
+        this._handleNext(response);
+        this._maybeCompleteSubscriptionOperationTracking();
+      });
+      this._log({
+        name: 'execute.next',
+        executeId: this._executeId,
+        response,
+        duration,
+      });
     });
   }
 
@@ -460,39 +526,39 @@ class Executor {
     // with the initial payload followed by some early-to-resolve incremental
     // payloads (although, can that even happen?)
     if (hasNonIncrementalResponses) {
+      // For subscriptions, to avoid every new payload from overwriting existing
+      // data from previous payloads, assign a unique rootID for every new
+      // non-incremental payload.
+      if (this._isSubscriptionOperation) {
+        const nextID = generateUniqueClientID();
+        this._operation = {
+          request: this._operation.request,
+          fragment: createReaderSelector(
+            this._operation.fragment.node,
+            nextID,
+            this._operation.fragment.variables,
+            this._operation.fragment.owner,
+          ),
+          root: createNormalizationSelector(
+            this._operation.root.node,
+            nextID,
+            this._operation.root.variables,
+          ),
+        };
+      }
+
       const payloadFollowups = this._processResponses(nonIncrementalResponses);
 
-      if (!RelayFeatureFlags.ENABLE_BATCHED_STORE_UPDATES) {
-        const updatedOwners = this._publishQueue.run(this._operation);
-        this._updateOperationTracker(updatedOwners);
-      }
-
       this._processPayloadFollowups(payloadFollowups);
-
-      if (!RelayFeatureFlags.ENABLE_BATCHED_STORE_UPDATES) {
-        if (this._incrementalPayloadsPending && !this._retainDisposable) {
-          this._retainDisposable = this._store.retain(this._operation);
-        }
-      }
     }
 
     if (incrementalResponses.length > 0) {
       const payloadFollowups = this._processIncrementalResponses(
         incrementalResponses,
       );
-      if (!RelayFeatureFlags.ENABLE_BATCHED_STORE_UPDATES) {
-        // For the incremental case, we're only handling follow-up responses
-        // for already initiated operation (and we're not passing it to
-        // the run(...) call)
-        const updatedOwners = this._publishQueue.run();
-        this._updateOperationTracker(updatedOwners);
-      }
       this._processPayloadFollowups(payloadFollowups);
     }
-    if (
-      this._isSubscriptionOperation &&
-      RelayFeatureFlags.ENABLE_UNIQUE_SUBSCRIPTION_ROOT
-    ) {
+    if (this._isSubscriptionOperation) {
       // We attach the id to allow the `requestSubscription` to read from the store using
       // the current id in its `onNext` callback
       if (responsesWithData[0].extensions == null) {
@@ -505,18 +571,16 @@ class Executor {
       }
     }
 
-    if (RelayFeatureFlags.ENABLE_BATCHED_STORE_UPDATES) {
-      // OK: run once after each new payload
-      // If we have non-incremental responses, we passing `this._operation` to
-      // the publish queue here, which will later be passed to the store (via
-      // notify) to indicate that this operation caused the store to update
-      const updatedOwners = this._publishQueue.run(
-        hasNonIncrementalResponses ? this._operation : undefined,
-      );
-      if (hasNonIncrementalResponses) {
-        if (this._incrementalPayloadsPending && !this._retainDisposable) {
-          this._retainDisposable = this._store.retain(this._operation);
-        }
+    // OK: run once after each new payload
+    // If we have non-incremental responses, we passing `this._operation` to
+    // the publish queue here, which will later be passed to the store (via
+    // notify) to indicate that this operation caused the store to update
+    const updatedOwners = this._publishQueue.run(
+      hasNonIncrementalResponses ? this._operation : undefined,
+    );
+    if (hasNonIncrementalResponses) {
+      if (this._incrementalPayloadsPending && !this._retainDisposable) {
+        this._retainDisposable = this._store.retain(this._operation);
       }
       this._updateOperationTracker(updatedOwners);
     }
@@ -545,7 +609,10 @@ class Executor {
         {
           getDataID: this._getDataID,
           path: [],
-          reactFlightPayloadDeserializer: this._reactFlightPayloadDeserializer,
+          reactFlightPayloadDeserializer:
+            this._reactFlightPayloadDeserializer != null
+              ? this._deserializeReactFlightPayloadWithLogging
+              : null,
           reactFlightServerErrorHandler: this._reactFlightServerErrorHandler,
           shouldProcessClientComponents: this._shouldProcessClientComponents,
           treatMissingFieldsAsNull,
@@ -565,7 +632,7 @@ class Executor {
           errors: null,
           fieldPayloads: null,
           incrementalPlaceholders: null,
-          moduleImportPayloads: null,
+          followupPayloads: null,
           source: RelayRecordSource.create(),
           isFinal: false,
         },
@@ -583,29 +650,37 @@ class Executor {
     payload: RelayResponsePayload,
     optimisticUpdates: Array<OptimisticUpdate>,
   ): void {
-    if (payload.moduleImportPayloads && payload.moduleImportPayloads.length) {
-      const moduleImportPayloads = payload.moduleImportPayloads;
+    if (payload.followupPayloads && payload.followupPayloads.length) {
+      const followupPayloads = payload.followupPayloads;
       const operationLoader = this._operationLoader;
       invariant(
         operationLoader,
         'RelayModernEnvironment: Expected an operationLoader to be ' +
           'configured when using `@match`.',
       );
-      for (const moduleImportPayload of moduleImportPayloads) {
-        const operation = operationLoader.get(
-          moduleImportPayload.operationReference,
-        );
-        if (operation == null) {
-          this._processAsyncOptimisticModuleImport(
-            operationLoader,
-            moduleImportPayload,
+      for (const followupPayload of followupPayloads) {
+        if (followupPayload.kind === 'ModuleImportPayload') {
+          const operation = operationLoader.get(
+            followupPayload.operationReference,
           );
+          if (operation == null) {
+            this._processAsyncOptimisticModuleImport(
+              operationLoader,
+              followupPayload,
+            );
+          } else {
+            const moduleImportOptimisticUpdates = this._processOptimisticModuleImport(
+              operation,
+              followupPayload,
+            );
+            optimisticUpdates.push(...moduleImportOptimisticUpdates);
+          }
         } else {
-          const moduleImportOptimisticUpdates = this._processOptimisticModuleImport(
-            operation,
-            moduleImportPayload,
+          invariant(
+            false,
+            'OperationExecutor(): Unexpected payload follow up kind `%s`.',
+            followupPayload.kind,
           );
-          optimisticUpdates.push(...moduleImportOptimisticUpdates);
         }
       }
     }
@@ -613,12 +688,22 @@ class Executor {
 
   _normalizeModuleImport(
     moduleImportPayload: ModuleImportPayload,
-    operation: NormalizationSelectableNode,
+    operation: NormalizationSplitOperation | NormalizationOperation,
   ) {
+    let variables;
+    if (operation.kind === 'SplitOperation') {
+      variables = getLocalVariables(
+        moduleImportPayload.variables,
+        operation.argumentDefinitions,
+        moduleImportPayload.args,
+      );
+    } else {
+      variables = moduleImportPayload.variables;
+    }
     const selector = createNormalizationSelector(
       operation,
       moduleImportPayload.dataID,
-      moduleImportPayload.variables,
+      variables,
     );
     return normalizeResponse(
       {data: moduleImportPayload.data},
@@ -627,7 +712,10 @@ class Executor {
       {
         getDataID: this._getDataID,
         path: moduleImportPayload.path,
-        reactFlightPayloadDeserializer: this._reactFlightPayloadDeserializer,
+        reactFlightPayloadDeserializer:
+          this._reactFlightPayloadDeserializer != null
+            ? this._deserializeReactFlightPayloadWithLogging
+            : null,
         reactFlightServerErrorHandler: this._reactFlightServerErrorHandler,
         treatMissingFieldsAsNull: this._treatMissingFieldsAsNull,
         shouldProcessClientComponents: this._shouldProcessClientComponents,
@@ -706,7 +794,10 @@ class Executor {
         {
           getDataID: this._getDataID,
           path: [],
-          reactFlightPayloadDeserializer: this._reactFlightPayloadDeserializer,
+          reactFlightPayloadDeserializer:
+            this._reactFlightPayloadDeserializer != null
+              ? this._deserializeReactFlightPayloadWithLogging
+              : null,
           reactFlightServerErrorHandler: this._reactFlightServerErrorHandler,
           treatMissingFieldsAsNull: this._treatMissingFieldsAsNull,
           shouldProcessClientComponents: this._shouldProcessClientComponents,
@@ -732,24 +823,29 @@ class Executor {
       return;
     }
     payloads.forEach(payload => {
-      const {incrementalPlaceholders, moduleImportPayloads, isFinal} = payload;
+      const {incrementalPlaceholders, followupPayloads, isFinal} = payload;
       this._state = isFinal ? 'loading_final' : 'loading_incremental';
       this._updateActiveState();
       if (isFinal) {
         this._incrementalPayloadsPending = false;
       }
-      if (moduleImportPayloads && moduleImportPayloads.length !== 0) {
+      if (followupPayloads && followupPayloads.length !== 0) {
         const operationLoader = this._operationLoader;
         invariant(
           operationLoader,
           'RelayModernEnvironment: Expected an operationLoader to be ' +
             'configured when using `@match`.',
         );
-        moduleImportPayloads.forEach(moduleImportPayload => {
-          this._processModuleImportPayload(
-            moduleImportPayload,
-            operationLoader,
-          );
+        followupPayloads.forEach(followupPayload => {
+          if (followupPayload.kind === 'ModuleImportPayload') {
+            this._processModuleImportPayload(followupPayload, operationLoader);
+          } else {
+            invariant(
+              false,
+              'OperationExecutor(): Unexpected payload follow up kind `%s`.',
+              followupPayload.kind,
+            );
+          }
         });
       }
       if (incrementalPlaceholders && incrementalPlaceholders.length !== 0) {
@@ -787,10 +883,6 @@ class Executor {
             }
           });
           if (relayPayloads.length > 0) {
-            if (!RelayFeatureFlags.ENABLE_BATCHED_STORE_UPDATES) {
-              const updatedOwners = this._publishQueue.run();
-              this._updateOperationTracker(updatedOwners);
-            }
             this._processPayloadFollowups(relayPayloads);
           }
         }
@@ -807,23 +899,6 @@ class Executor {
       this._incrementalPayloadsPending === false
     ) {
       this._completeOperationTracker();
-    }
-    if (RelayFeatureFlags.ENABLE_UNIQUE_SUBSCRIPTION_ROOT) {
-      const nextID = generateUniqueClientID();
-      this._operation = {
-        request: this._operation.request,
-        fragment: createReaderSelector(
-          this._operation.fragment.node,
-          nextID,
-          this._operation.fragment.variables,
-          this._operation.fragment.owner,
-        ),
-        root: createNormalizationSelector(
-          this._operation.root.node,
-          nextID,
-          this._operation.root.variables,
-        ),
-      };
     }
   }
 
@@ -859,37 +934,87 @@ class Executor {
       // Observable.from(operationLoader.load()) wouldn't catch synchronous
       // errors thrown by the load function, which is user-defined. Guard
       // against that with Observable.from(new Promise(<work>)).
-      RelayObservable.from(
+      const networkObservable = RelayObservable.from(
         new Promise((resolve, reject) => {
           operationLoader
             .load(moduleImportPayload.operationReference)
             .then(resolve, reject);
         }),
-      )
-        .map((operation: ?NormalizationRootNode) => {
-          if (operation != null) {
-            this._schedule(() => {
-              this._handleModuleImportPayload(
-                moduleImportPayload,
-                getOperation(operation),
-              );
-              // OK: always have to run after an async module import resolves
-              const updatedOwners = this._publishQueue.run();
-              this._updateOperationTracker(updatedOwners);
-            });
-          }
-        })
-        .subscribe({
-          complete: () => {
-            this._complete(id);
-            decrementPendingCount();
+      );
+      RelayObservable.create(sink => {
+        let cancellationToken;
+        const subscription = networkObservable.subscribe({
+          next: (loadedNode: ?NormalizationRootNode) => {
+            if (loadedNode != null) {
+              const publishModuleImportPayload = () => {
+                try {
+                  const operation = getOperation(loadedNode);
+                  const batchAsyncModuleUpdatesFN =
+                    RelayFeatureFlags.BATCH_ASYNC_MODULE_UPDATES_FN;
+                  const shouldScheduleAsyncStoreUpdate =
+                    batchAsyncModuleUpdatesFN != null &&
+                    this._pendingModulePayloadsCount > 1;
+                  const [duration] = withDuration(() => {
+                    this._handleModuleImportPayload(
+                      moduleImportPayload,
+                      operation,
+                    );
+                    // OK: always have to run after an async module import resolves
+                    if (shouldScheduleAsyncStoreUpdate) {
+                      this._scheduleAsyncStoreUpdate(
+                        // $FlowFixMe[incompatible-call] `shouldScheduleAsyncStoreUpdate` check should cover `null` case
+                        batchAsyncModuleUpdatesFN,
+                        sink.complete,
+                      );
+                    } else {
+                      const updatedOwners = this._publishQueue.run();
+                      this._updateOperationTracker(updatedOwners);
+                    }
+                  });
+                  this._log({
+                    name: 'execute.async.module',
+                    executeId: this._executeId,
+                    operationName: operation.name,
+                    duration,
+                  });
+                  if (!shouldScheduleAsyncStoreUpdate) {
+                    sink.complete();
+                  }
+                } catch (error) {
+                  sink.error(error);
+                }
+              };
+              const scheduler = this._scheduler;
+              if (scheduler == null) {
+                publishModuleImportPayload();
+              } else {
+                cancellationToken = scheduler.schedule(
+                  publishModuleImportPayload,
+                );
+              }
+            } else {
+              sink.complete();
+            }
           },
-          error: error => {
-            this._error(error);
-            decrementPendingCount();
-          },
-          start: subscription => this._start(id, subscription),
+          error: sink.error,
         });
+        return () => {
+          subscription.unsubscribe();
+          if (this._scheduler != null && cancellationToken != null) {
+            this._scheduler.cancel(cancellationToken);
+          }
+        };
+      }).subscribe({
+        complete: () => {
+          this._complete(id);
+          decrementPendingCount();
+        },
+        error: error => {
+          this._error(error);
+          decrementPendingCount();
+        },
+        start: subscription => this._start(id, subscription),
+      });
     }
   }
 
@@ -902,10 +1027,6 @@ class Executor {
       operation,
     );
     this._publishQueue.commitPayload(this._operation, relayPayload);
-    if (!RelayFeatureFlags.ENABLE_BATCHED_STORE_UPDATES) {
-      const updatedOwners = this._publishQueue.run();
-      this._updateOperationTracker(updatedOwners);
-    }
     this._processPayloadFollowups([relayPayload]);
   }
 
@@ -1010,10 +1131,6 @@ class Executor {
       const payloadFollowups = this._processIncrementalResponses(
         pendingResponses,
       );
-      if (!RelayFeatureFlags.ENABLE_BATCHED_STORE_UPDATES) {
-        const updatedOwners = this._publishQueue.run();
-        this._updateOperationTracker(updatedOwners);
-      }
       this._processPayloadFollowups(payloadFollowups);
     }
   }
@@ -1107,7 +1224,10 @@ class Executor {
       {
         getDataID: this._getDataID,
         path: placeholder.path,
-        reactFlightPayloadDeserializer: this._reactFlightPayloadDeserializer,
+        reactFlightPayloadDeserializer:
+          this._reactFlightPayloadDeserializer != null
+            ? this._deserializeReactFlightPayloadWithLogging
+            : null,
         reactFlightServerErrorHandler: this._reactFlightServerErrorHandler,
         treatMissingFieldsAsNull: this._treatMissingFieldsAsNull,
         shouldProcessClientComponents: this._shouldProcessClientComponents,
@@ -1130,7 +1250,7 @@ class Executor {
         errors: null,
         fieldPayloads,
         incrementalPlaceholders: null,
-        moduleImportPayloads: null,
+        followupPayloads: null,
         source: RelayRecordSource.create(),
         isFinal: response.extensions?.is_final === true,
       };
@@ -1212,7 +1332,7 @@ class Executor {
         errors: null,
         fieldPayloads,
         incrementalPlaceholders: null,
-        moduleImportPayloads: null,
+        followupPayloads: null,
         source: RelayRecordSource.create(),
         isFinal: false,
       };
@@ -1324,7 +1444,10 @@ class Executor {
     const relayPayload = normalizeResponse(response, selector, typeName, {
       getDataID: this._getDataID,
       path: [...normalizationPath, responseKey, String(itemIndex)],
-      reactFlightPayloadDeserializer: this._reactFlightPayloadDeserializer,
+      reactFlightPayloadDeserializer:
+        this._reactFlightPayloadDeserializer != null
+          ? this._deserializeReactFlightPayloadWithLogging
+          : null,
       reactFlightServerErrorHandler: this._reactFlightServerErrorHandler,
       treatMissingFieldsAsNull: this._treatMissingFieldsAsNull,
       shouldProcessClientComponents: this._shouldProcessClientComponents,
@@ -1337,6 +1460,25 @@ class Executor {
       relayPayload,
       storageKey,
     };
+  }
+
+  _scheduleAsyncStoreUpdate(
+    scheduleFn: (() => void) => Disposable,
+    completeFn: () => void,
+  ): void {
+    this._completeFns.push(completeFn);
+    if (this._asyncStoreUpdateDisposable != null) {
+      return;
+    }
+    this._asyncStoreUpdateDisposable = scheduleFn(() => {
+      this._asyncStoreUpdateDisposable = null;
+      const updatedOwners = this._publishQueue.run();
+      this._updateOperationTracker(updatedOwners);
+      for (const complete of this._completeFns) {
+        complete();
+      }
+      this._completeFns = [];
+    });
   }
 
   _updateOperationTracker(

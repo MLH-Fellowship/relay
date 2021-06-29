@@ -18,10 +18,10 @@ use interner::StringKey;
 use schema::{Schema, Type};
 
 use crate::node_identifier::{LocationAgnosticPartialEq, NodeIdentifier};
+use common::sync::*;
 use common::{Diagnostic, DiagnosticsResult, Location, NamedItem};
 use fnv::FnvHashMap;
 use parking_lot::{Mutex, RwLock};
-use rayon::prelude::*;
 use schema::SDLSchema;
 use std::sync::Arc;
 
@@ -41,12 +41,12 @@ pub fn flatten(program: &mut Program, is_for_codegen: bool) -> DiagnosticsResult
     let transform = FlattenTransform::new(program, is_for_codegen);
     let errors = Arc::new(Mutex::new(Vec::new()));
 
-    program.par_operations_mut().for_each(|operation| {
+    par_iter(&mut program.operations).for_each(|operation| {
         if let Err(err) = transform.transform_operation(operation) {
             errors.lock().extend(err.into_iter());
         }
     });
-    program.par_fragments_mut().for_each(|fragment| {
+    par_iter(&mut program.fragments).for_each(|(_, fragment)| {
         if let Err(err) = transform.transform_fragment(fragment) {
             errors.lock().extend(err.into_iter());
         }
@@ -256,9 +256,9 @@ impl FlattenTransform {
                 }
             }
 
-            let flattened_selection = flattened_selections
-                .iter_mut()
-                .find(|sel| NodeIdentifier::are_equal(&self.schema, sel, selection));
+            let flattened_selection = flattened_selections.iter_mut().find(|sel| {
+                sel.ptr_eq(selection) || NodeIdentifier::are_equal(&self.schema, sel, selection)
+            });
 
             match flattened_selection {
                 None => {
@@ -266,16 +266,18 @@ impl FlattenTransform {
                 }
                 Some(flattened_selection) => {
                     has_changes = true;
+                    if flattened_selection.ptr_eq(selection) {
+                        continue;
+                    }
                     match flattened_selection {
                         Selection::InlineFragment(flattened_node) => {
-                            let type_condition =
-                                flattened_node.type_condition.unwrap_or(parent_type);
-
                             let node = match selection {
                                 Selection::InlineFragment(node) => node,
                                 _ => unreachable!("FlattenTransform: Expected an InlineFragment."),
                             };
 
+                            let type_condition =
+                                flattened_node.type_condition.unwrap_or(parent_type);
                             if let Some(flattened_module_directive) = flattened_node
                                 .directives
                                 .named(MATCH_CONSTANTS.custom_module_directive_name)
@@ -349,15 +351,15 @@ impl FlattenTransform {
                             )?;
                         }
                         Selection::Condition(flattened_node) => {
-                            let node_selections = match selection {
-                                Selection::Condition(node) => &node.selections,
+                            let node = match selection {
+                                Selection::Condition(node) => node,
                                 _ => unreachable!("FlattenTransform: Expected a Condition."),
                             };
 
                             let flattened_node = Arc::make_mut(flattened_node);
                             self.flatten_selections(
                                 &mut flattened_node.selections,
-                                &node_selections,
+                                &node.selections,
                                 parent_type,
                             )?;
                         }
@@ -408,14 +410,22 @@ impl FlattenTransform {
         Diagnostic::error(
             ValidationMessage::InvalidSameFieldWithDifferentArguments {
                 field_name,
-                arguments_a: graphql_text_printer::print_arguments(&self.schema, &arguments_a),
+                arguments_a: graphql_text_printer::print_arguments(
+                    &self.schema,
+                    &arguments_a,
+                    graphql_text_printer::PrinterOptions::default(),
+                ),
             },
             location_a,
         )
         .annotate(
             format!(
                 "which conflicts with this field with applied argument values {}",
-                graphql_text_printer::print_arguments(&self.schema, &arguments_b),
+                graphql_text_printer::print_arguments(
+                    &self.schema,
+                    &arguments_b,
+                    graphql_text_printer::PrinterOptions::default()
+                ),
             ),
             location_b,
         )

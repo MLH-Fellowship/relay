@@ -75,6 +75,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "fetchable",
@@ -92,6 +93,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "include",
@@ -113,6 +115,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "ref_type",
@@ -137,6 +140,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "skip",
@@ -158,6 +162,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "source",
@@ -182,6 +187,7 @@ Text Schema:Schema {
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
 ]
  type_map: {
@@ -219,6 +225,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "fetch__XIGStory",
@@ -239,6 +246,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -251,6 +259,7 @@ Text Schema:Schema {
         parent_type: Some(
             Interface(0),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -263,6 +272,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "story",
@@ -305,6 +315,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "default_mailing_address",
@@ -325,6 +336,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -337,6 +349,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "is_default",
@@ -349,6 +362,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "label",
@@ -361,6 +375,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -373,6 +388,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(3),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -385,6 +401,7 @@ Text Schema:Schema {
         parent_type: Some(
             Object(3),
         ),
+        description: None,
     },
     Field {
         name: "__typename",
@@ -397,6 +414,7 @@ Text Schema:Schema {
         ),
         directives: [],
         parent_type: None,
+        description: None,
     },
     Field {
         name: "__token",
@@ -409,6 +427,7 @@ Text Schema:Schema {
         ),
         directives: [],
         parent_type: None,
+        description: None,
     },
     Field {
         name: "__id",
@@ -421,6 +440,7 @@ Text Schema:Schema {
         ),
         directives: [],
         parent_type: None,
+        description: None,
     },
 ]
  input_objects: [
@@ -755,6 +775,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "fetchable",
@@ -772,6 +793,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "include",
@@ -793,6 +815,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "ref_type",
@@ -817,6 +840,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "skip",
@@ -838,6 +862,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
     Directive {
         name: "source",
@@ -862,6 +887,7 @@ directives: [
         ],
         repeatable: false,
         is_extension: false,
+        description: None,
     },
 ]
 enums: []
@@ -877,6 +903,7 @@ fields: [
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "is_default",
@@ -889,6 +916,7 @@ fields: [
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "label",
@@ -901,6 +929,7 @@ fields: [
         parent_type: Some(
             Object(0),
         ),
+        description: None,
     },
     Field {
         name: "fetch__User",
@@ -921,6 +950,7 @@ fields: [
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "fetch__XIGStory",
@@ -941,6 +971,7 @@ fields: [
         parent_type: Some(
             Object(1),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -953,6 +984,7 @@ fields: [
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "story",
@@ -995,6 +1027,7 @@ fields: [
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "default_mailing_address",
@@ -1015,6 +1048,7 @@ fields: [
         parent_type: Some(
             Object(2),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -1027,6 +1061,7 @@ fields: [
         parent_type: Some(
             Interface(0),
         ),
+        description: None,
     },
     Field {
         name: "id",
@@ -1039,6 +1074,7 @@ fields: [
         parent_type: Some(
             Object(3),
         ),
+        description: None,
     },
     Field {
         name: "name",
@@ -1051,6 +1087,7 @@ fields: [
         parent_type: Some(
             Object(3),
         ),
+        description: None,
     },
 ]
 input_objects: [

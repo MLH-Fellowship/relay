@@ -13,6 +13,7 @@
 
 'use strict';
 
+const RelayFeatureFlags = require('../../util/RelayFeatureFlags');
 const RelayModernEnvironment = require('../RelayModernEnvironment');
 const RelayModernStore = require('../RelayModernStore');
 const RelayNetwork = require('../../network/RelayNetwork');
@@ -238,9 +239,15 @@ describe('executeSubscrption() with @match', () => {
     expect(next.mock.calls.length).toBe(1);
     expect(complete).not.toBeCalled();
     expect(error).not.toBeCalled();
-
-    expect(operationCallback).toBeCalledTimes(1);
-    const operationSnapshot = operationCallback.mock.calls[0][0];
+    const nextID = payload.extensions?.__relay_subscription_root_id;
+    const nextOperation = createReaderSelector(
+      operation.fragment.node,
+      // $FlowFixMe
+      nullthrows(nextID),
+      operation.fragment.variables,
+      operation.fragment.owner,
+    );
+    const operationSnapshot = environment.lookup(nextOperation);
     expect(operationSnapshot.isMissingData).toBe(false);
     expect(operationSnapshot.data).toEqual({
       commentCreateSubscribe: {
@@ -294,7 +301,7 @@ describe('executeSubscrption() with @match', () => {
     expect(
       environment
         .getOperationTracker()
-        .getPromiseForPendingOperationsAffectingOwner(queryOperation.request),
+        .getPendingOperationsAffectingOwner(queryOperation.request),
     ).not.toBe(null);
   });
 
@@ -335,10 +342,15 @@ describe('executeSubscrption() with @match', () => {
       'RelayModernEnvironmentExecuteSubscriptionWithMatchTestMarkdownUserNameRenderer_name$normalization.graphql',
     );
 
-    expect(operationCallback).toBeCalledTimes(1);
-    // result tested above
-    const operationSnapshot = operationCallback.mock.calls[0][0];
-    operationCallback.mockClear();
+    const nextID = payload.extensions?.__relay_subscription_root_id;
+    const nextOperation = createReaderSelector(
+      operation.fragment.node,
+      // $FlowFixMe
+      nullthrows(nextID),
+      operation.fragment.variables,
+      operation.fragment.owner,
+    );
+    const operationSnapshot = environment.lookup(nextOperation);
 
     const matchSelector = nullthrows(
       getSingularSelector(
@@ -376,7 +388,7 @@ describe('executeSubscrption() with @match', () => {
     expect(
       environment
         .getOperationTracker()
-        .getPromiseForPendingOperationsAffectingOwner(queryOperation.request),
+        .getPendingOperationsAffectingOwner(queryOperation.request),
     ).toBe(null);
   });
 
@@ -421,7 +433,7 @@ describe('executeSubscrption() with @match', () => {
     expect(
       environment
         .getOperationTracker()
-        .getPromiseForPendingOperationsAffectingOwner(queryOperation.request),
+        .getPendingOperationsAffectingOwner(queryOperation.request),
     ).not.toBe(null);
 
     expect(operationLoader.load).toBeCalledTimes(1);
@@ -439,8 +451,80 @@ describe('executeSubscrption() with @match', () => {
     expect(
       environment
         .getOperationTracker()
-        .getPromiseForPendingOperationsAffectingOwner(queryOperation.request),
+        .getPendingOperationsAffectingOwner(queryOperation.request),
     ).toBe(null);
+  });
+
+  it('calls complete() only after match payloads are processed (root network completes first, with batching on)', () => {
+    const prevFlagAsync = RelayFeatureFlags.BATCH_ASYNC_MODULE_UPDATES_FN;
+    RelayFeatureFlags.BATCH_ASYNC_MODULE_UPDATES_FN = task => {
+      const handle = setTimeout(task, 0);
+      return {
+        dispose: () => clearTimeout(handle),
+      };
+    };
+    environment.execute({operation}).subscribe(callbacks);
+    const payload = {
+      data: {
+        commentCreateSubscribe: {
+          comment: {
+            id: commentID,
+            actor: {
+              id: '4',
+              name: 'actor-name',
+              __typename: 'User',
+              nameRenderer: {
+                __typename: 'MarkdownUserNameRenderer',
+                __module_component_RelayModernEnvironmentExecuteSubscriptionWithMatchTestCommentCreateSubscription:
+                  'MarkdownUserNameRenderer.react',
+                __module_operation_RelayModernEnvironmentExecuteSubscriptionWithMatchTestCommentCreateSubscription:
+                  'RelayModernEnvironmentExecuteSubscriptionWithMatchTestMarkdownUserNameRenderer_name$normalization.graphql',
+                markdown: 'markdown payload',
+                data: {
+                  id: 'data-1',
+                  markup: '<markup/>', // server data is lowercase
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    dataSource.next(payload);
+    dataSource.complete();
+    jest.runAllTimers();
+    expect(complete).toBeCalledTimes(0);
+    expect(error).toBeCalledTimes(0);
+    expect(next).toBeCalledTimes(1);
+
+    // The subscription affecting the query should still appear in flight;
+    // even though the root request has completed, we're still waiting on the
+    // module resource
+    expect(
+      environment
+        .getOperationTracker()
+        .getPendingOperationsAffectingOwner(queryOperation.request),
+    ).not.toBe(null);
+
+    expect(operationLoader.load).toBeCalledTimes(1);
+    expect(operationLoader.load.mock.calls[0][0]).toEqual(
+      'RelayModernEnvironmentExecuteSubscriptionWithMatchTestMarkdownUserNameRenderer_name$normalization.graphql',
+    );
+    resolveFragment(markdownRendererNormalizationFragment);
+    jest.runAllImmediates();
+
+    expect(complete).toBeCalledTimes(1);
+    expect(error).toBeCalledTimes(0);
+    expect(next).toBeCalledTimes(1);
+    // The subscription affecting the query should no longer be in flight
+    // because async batching isn't on with one active query
+    expect(
+      environment
+        .getOperationTracker()
+        .getPendingOperationsAffectingOwner(queryOperation.request),
+    ).toBe(null);
+
+    RelayFeatureFlags.BATCH_ASYNC_MODULE_UPDATES_FN = prevFlagAsync;
   });
 
   it('calls complete() only after match payloads are processed (root network completes last)', () => {
@@ -479,7 +563,7 @@ describe('executeSubscrption() with @match', () => {
     expect(
       environment
         .getOperationTracker()
-        .getPromiseForPendingOperationsAffectingOwner(queryOperation.request),
+        .getPendingOperationsAffectingOwner(queryOperation.request),
     ).not.toBe(null);
 
     expect(operationLoader.load).toBeCalledTimes(1);
@@ -498,7 +582,7 @@ describe('executeSubscrption() with @match', () => {
     expect(
       environment
         .getOperationTracker()
-        .getPromiseForPendingOperationsAffectingOwner(queryOperation.request),
+        .getPendingOperationsAffectingOwner(queryOperation.request),
     ).toBe(null);
 
     dataSource.complete();
@@ -510,7 +594,7 @@ describe('executeSubscrption() with @match', () => {
     expect(
       environment
         .getOperationTracker()
-        .getPromiseForPendingOperationsAffectingOwner(queryOperation.request),
+        .getPendingOperationsAffectingOwner(queryOperation.request),
     ).toBe(null);
   });
 
@@ -550,7 +634,7 @@ describe('executeSubscrption() with @match', () => {
     expect(
       environment
         .getOperationTracker()
-        .getPromiseForPendingOperationsAffectingOwner(queryOperation.request),
+        .getPendingOperationsAffectingOwner(queryOperation.request),
     ).not.toBe(null);
 
     const err = new Error('Oops');
@@ -567,7 +651,135 @@ describe('executeSubscrption() with @match', () => {
     expect(
       environment
         .getOperationTracker()
-        .getPromiseForPendingOperationsAffectingOwner(queryOperation.request),
+        .getPendingOperationsAffectingOwner(queryOperation.request),
     ).toBe(null);
+  });
+
+  describe('with schedulers', () => {
+    let taskID;
+    let tasks;
+    let scheduler;
+    let runTask;
+
+    beforeEach(() => {
+      taskID = 0;
+      tasks = new Map();
+      scheduler = {
+        cancel: id => {
+          tasks.delete(id);
+        },
+        schedule: task => {
+          const id = String(taskID++);
+          tasks.set(id, task);
+          return id;
+        },
+      };
+      runTask = () => {
+        for (const [id, task] of tasks) {
+          tasks.delete(id);
+          task();
+          break;
+        }
+      };
+
+      environment = new RelayModernEnvironment({
+        network: RelayNetwork.create(fetchFn, subscribeFn),
+        store,
+        operationLoader,
+        scheduler,
+        handlerProvider: name => {
+          switch (name) {
+            case 'markup_handler':
+              return {update: () => {}};
+          }
+        },
+      });
+      const selector = createReaderSelector(
+        commentFragment,
+        commentID,
+        {},
+        queryOperation.request,
+      );
+      const fragmentSnapshot = environment.lookup(selector);
+      fragmentCallback = jest.fn();
+      environment.subscribe(fragmentSnapshot, fragmentCallback);
+      const operationSnapshot = environment.lookup(operation.fragment);
+      operationCallback = jest.fn();
+      environment.subscribe(operationSnapshot, operationCallback);
+    });
+
+    it('calls complete() only after match payloads are processed (root network completes first)', () => {
+      environment.execute({operation}).subscribe(callbacks);
+      const payload = {
+        data: {
+          commentCreateSubscribe: {
+            comment: {
+              id: commentID,
+              actor: {
+                id: '4',
+                name: 'actor-name',
+                __typename: 'User',
+                nameRenderer: {
+                  __typename: 'MarkdownUserNameRenderer',
+                  __module_component_RelayModernEnvironmentExecuteSubscriptionWithMatchTestCommentCreateSubscription:
+                    'MarkdownUserNameRenderer.react',
+                  __module_operation_RelayModernEnvironmentExecuteSubscriptionWithMatchTestCommentCreateSubscription:
+                    'RelayModernEnvironmentExecuteSubscriptionWithMatchTestMarkdownUserNameRenderer_name$normalization.graphql',
+                  markdown: 'markdown payload',
+                  data: {
+                    id: 'data-1',
+                    markup: '<markup/>', // server data is lowercase
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+      dataSource.next(payload);
+      dataSource.complete();
+      jest.runAllTimers();
+      runTask();
+      expect(complete).toBeCalledTimes(0);
+      expect(error).toBeCalledTimes(0);
+      expect(next).toBeCalledTimes(1);
+
+      // The subscription affecting the query should still appear in flight;
+      // even though the root request has completed, we're still waiting on the
+      // module resource
+      expect(
+        environment
+          .getOperationTracker()
+          .getPendingOperationsAffectingOwner(queryOperation.request),
+      ).not.toBe(null);
+
+      expect(operationLoader.load).toBeCalledTimes(1);
+      expect(operationLoader.load.mock.calls[0][0]).toEqual(
+        'RelayModernEnvironmentExecuteSubscriptionWithMatchTestMarkdownUserNameRenderer_name$normalization.graphql',
+      );
+      resolveFragment(markdownRendererNormalizationFragment);
+      jest.runAllTimers();
+      // The normalization file is loaded, but the data hasn't been published to the store
+      expect(tasks.size).toBe(1);
+      expect(
+        environment
+          .getOperationTracker()
+          .getPendingOperationsAffectingOwner(queryOperation.request),
+      ).not.toBe(null);
+      expect(complete).toBeCalledTimes(0);
+      expect(error).toBeCalledTimes(0);
+      expect(next).toBeCalledTimes(1);
+
+      runTask();
+      expect(complete).toBeCalledTimes(1);
+      expect(error).toBeCalledTimes(0);
+      expect(next).toBeCalledTimes(1);
+      // The subscription affecting the query should no longer be in flight
+      expect(
+        environment
+          .getOperationTracker()
+          .getPendingOperationsAffectingOwner(queryOperation.request),
+      ).toBe(null);
+    });
   });
 });

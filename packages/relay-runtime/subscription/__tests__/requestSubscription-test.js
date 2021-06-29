@@ -13,7 +13,6 @@
 
 'use strict';
 
-const RelayFeatureFlags = require('../../util/RelayFeatureFlags');
 const RelayModernEnvironment = require('../../store/RelayModernEnvironment');
 const RelayModernStore = require('../../store/RelayModernStore');
 const RelayNetwork = require('../../network/RelayNetwork');
@@ -242,36 +241,29 @@ describe('requestSubscription-test', () => {
       });
     });
 
-    function runTests() {
-      it('with cacheConfig', () => {
-        requestSubscription(environment, {
-          subscription: CommentCreateSubscription,
-          variables,
-          cacheConfig: {
-            metadata,
-          },
-        });
-
-        expect(cacheMetadata).toEqual(metadata);
+    it('with cacheConfig', () => {
+      requestSubscription(environment, {
+        subscription: CommentCreateSubscription,
+        variables,
+        cacheConfig: {
+          metadata,
+        },
       });
 
-      it('without cacheConfig', () => {
-        requestSubscription(environment, {
-          subscription: CommentCreateSubscription,
-          variables,
-        });
+      expect(cacheMetadata).toEqual(metadata);
+    });
 
-        expect(cacheMetadata).toEqual(undefined);
+    it('without cacheConfig', () => {
+      requestSubscription(environment, {
+        subscription: CommentCreateSubscription,
+        variables,
       });
-    }
-    RelayFeatureFlags.ENABLE_UNIQUE_SUBSCRIPTION_ROOT = false;
-    runTests();
-    RelayFeatureFlags.ENABLE_UNIQUE_SUBSCRIPTION_ROOT = true;
-    runTests();
+
+      expect(cacheMetadata).toEqual(undefined);
+    });
   });
 
   it('does not overwrite existing data', () => {
-    RelayFeatureFlags.ENABLE_UNIQUE_SUBSCRIPTION_ROOT = true;
     const ConfigsQuery = getRequest(graphql`
       query requestSubscriptionTestConfigsQuery {
         viewer {
@@ -426,5 +418,93 @@ describe('requestSubscription-test', () => {
         },
       },
     });
+  });
+
+  it('reads the data using the correct rootID in onNext when resources are resolved synchronously', () => {
+    const normalization = require('./__generated__/requestSubscriptionTestPlainUserNameRenderer_name$normalization.graphql');
+    const subscription = getRequest(graphql`
+      subscription requestSubscriptionTestSubscription(
+        $input: CommentCreateSubscriptionInput!
+      ) {
+        commentCreateSubscribe(input: $input) {
+          comment {
+            actor {
+              name
+              nameRenderer @match {
+                ...requestSubscriptionTestPlainUserNameRenderer_name
+                  @module(name: "PlainUserNameRenderer.react")
+              }
+            }
+          }
+        }
+      }
+    `);
+
+    graphql`
+      fragment requestSubscriptionTestPlainUserNameRenderer_name on PlainUserNameRenderer {
+        plaintext
+        data {
+          text
+        }
+      }
+    `;
+    const environment = createMockEnvironment({
+      operationLoader: {
+        load: jest.fn(moduleName => {
+          return Promise.resolve(normalization);
+        }),
+        get: () => normalization,
+      },
+    });
+
+    const onNext = jest.fn();
+    const updater = jest.fn();
+
+    requestSubscription(environment, {
+      subscription,
+      variables: {},
+      updater,
+      onNext,
+    });
+    environment.mock.nextValue(subscription, {
+      data: {
+        commentCreateSubscribe: {
+          comment: {
+            id: '1',
+            actor: {
+              id: '4',
+              name: 'actor-name',
+              __typename: 'User',
+              nameRenderer: {
+                __typename: 'PlainUserNameRenderer',
+                __module_component_requestSubscriptionTestSubscription:
+                  'MarkdownUserNameRenderer.react',
+                __module_operation_requestSubscriptionTestSubscription:
+                  'RelayModernEnvironmentExecuteSubscriptionWithMatchTestMarkdownUserNameRenderer_name$normalization.graphql',
+                markdown: 'markdown payload',
+                data: {
+                  id: 'data-1',
+                  plaintext: 'text',
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    jest.runAllTimers();
+
+    expect(onNext).toBeCalledTimes(1);
+    expect(onNext).toBeCalledWith({
+      commentCreateSubscribe: {
+        comment: {
+          actor: {
+            name: 'actor-name',
+            nameRenderer: expect.any(Object),
+          },
+        },
+      },
+    });
+    expect(updater).toBeCalledTimes(1);
   });
 });

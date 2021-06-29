@@ -27,6 +27,7 @@ const getOperation = require('../util/getOperation');
 const invariant = require('invariant');
 
 const {isClientID} = require('./ClientID');
+const {getLocalVariables} = require('./RelayConcreteVariables');
 const {EXISTENT, UNKNOWN} = require('./RelayRecordState');
 const {generateTypeID} = require('./TypeID');
 
@@ -57,6 +58,7 @@ export type Availability = {|
 |};
 
 const {
+  ACTOR_CHANGE,
   CONDITION,
   CLIENT_COMPONENT,
   CLIENT_EXTENSION,
@@ -184,6 +186,8 @@ class DataChecker {
     ...
   } {
     return {
+      /* $FlowFixMe[class-object-subtyping] added when improving typing for
+       * this parameters */
       args: field.args ? getArgumentValues(field.args, this._variables) : {},
       // Getting a snapshot of the record state is potentially expensive since
       // we will need to merge the sink and source records. Since we do not create
@@ -309,8 +313,14 @@ class DataChecker {
             this._checkLink(selection, dataID);
           }
           break;
+        case ACTOR_CHANGE:
+          // TODO: T89695242: Support multi-actor record sources in DataChecker.js
+          this._checkLink(selection.linkedField, dataID);
+          break;
         case CONDITION:
-          const conditionValue = this._getVariableValue(selection.condition);
+          const conditionValue = Boolean(
+            this._getVariableValue(selection.condition),
+          );
           if (conditionValue === selection.passingValue) {
             this._traverseSelections(selection.selections, dataID);
           }
@@ -388,9 +398,15 @@ class DataChecker {
         case STREAM:
           this._traverseSelections(selection.selections, dataID);
           break;
-        // $FlowFixMe[incompatible-type]
         case FRAGMENT_SPREAD:
+          const prevVariables = this._variables;
+          this._variables = getLocalVariables(
+            this._variables,
+            selection.fragment.argumentDefinitions,
+            selection.args,
+          );
           this._traverseSelections(selection.fragment.selections, dataID);
+          this._variables = prevVariables;
           break;
         case CLIENT_EXTENSION:
           const recordWasMissing = this._recordWasMissing;
@@ -462,7 +478,14 @@ class DataChecker {
     const normalizationRootNode = operationLoader.get(operationReference);
     if (normalizationRootNode != null) {
       const operation = getOperation(normalizationRootNode);
+      const prevVariables = this._variables;
+      this._variables = getLocalVariables(
+        this._variables,
+        operation.argumentDefinitions,
+        moduleImport.args,
+      );
       this._traverse(operation, dataID);
+      this._variables = prevVariables;
     } else {
       // If the fragment is not available, we assume that the data cannot have been
       // processed yet and must therefore be missing.

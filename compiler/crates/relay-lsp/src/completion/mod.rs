@@ -7,7 +7,7 @@
 
 //! Utilities for providing the completion language feature
 use crate::{
-    lsp::{CompletionItem, CompletionResponse},
+    lsp::{CompletionItem, CompletionResponse, Documentation, MarkupContent},
     lsp_runtime_error::{LSPRuntimeError, LSPRuntimeResult},
     node_resolution_info::{TypePath, TypePathItem},
     server::LSPState,
@@ -25,7 +25,10 @@ use graphql_syntax::{
 use interner::{Intern, StringKey};
 use lazy_static::lazy_static;
 use log::debug;
-use lsp_types::request::{Completion, Request};
+use lsp_types::{
+    request::{Completion, Request},
+    MarkupKind,
+};
 use schema::{
     Argument as SchemaArgument, Directive as SchemaDirective, SDLSchema, Schema, Type,
     TypeReference, TypeWithFields,
@@ -316,7 +319,7 @@ impl CompletionRequestBuilder {
                         }
                         self.build_request_from_directives(
                             directives,
-                            DirectiveLocation::Scalar,
+                            DirectiveLocation::Field,
                             position_span,
                             type_path,
                             None,
@@ -669,6 +672,7 @@ fn resolve_completion_items_for_argument_name<T: ArgumentLike>(
                     )),
                     data: None,
                     tags: None,
+                    ..Default::default()
                 }
             }
         })
@@ -731,6 +735,7 @@ fn resolve_completion_items_for_inline_fragment_type(
                 )),
                 data: None,
                 tags: None,
+                ..Default::default()
             }
         }
     })
@@ -826,11 +831,18 @@ fn resolve_completion_items_from_fields<T: TypeWithFields>(
             } else {
                 (None, None)
             };
+
+            let documentation = field.description.map(|desc| {
+                Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: desc.to_string(),
+                })
+            });
             CompletionItem {
                 label: name,
                 kind: None,
                 detail: deprecated_reason,
-                documentation: None,
+                documentation,
                 deprecated: Some(deprecated_directive.is_some()),
                 preselect: None,
                 sort_text: None,
@@ -842,6 +854,7 @@ fn resolve_completion_items_from_fields<T: TypeWithFields>(
                 command,
                 data: None,
                 tags: None,
+                ..Default::default()
             }
         })
         .collect()
@@ -889,6 +902,7 @@ fn resolve_completion_items_for_fragment_spread(
                         )),
                         data: None,
                         tags: None,
+                        ..Default::default()
                     }
                 });
             }
@@ -924,11 +938,18 @@ fn completion_item_from_directive(
         }
     };
 
+    let documentation = directive.description.map(|desc| {
+        Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: desc.to_string(),
+        })
+    });
+
     CompletionItem {
         label,
         kind: None,
         detail: None,
-        documentation: None,
+        documentation,
         deprecated: None,
         preselect: None,
         sort_text: None,
@@ -944,6 +965,7 @@ fn completion_item_from_directive(
         )),
         data: None,
         tags: None,
+        ..Default::default()
     }
 }
 
